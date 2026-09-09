@@ -99,12 +99,22 @@
     async syncAll(data) {
       if (!this.client || !this.user) return;
       const uid = this.user.id;
-      const rows = {
+
+      // 現在のDB状態を取得し、変更・追加・削除があった行だけ書き換える。
+      // これまでの「親テーブルを全削除→全件INSERT」方式と違い、
+      // 既存データを無駄に作り直さないため、データ量が増えても負荷を抑えられる。
+      const remote = await this.loadAll();
+      const uuid = () => uuidFallback();
+      const same = (a, b, keys) => keys.every(k => (a?.[k] ?? null) === (b?.[k] ?? null));
+
+      const desired = {
         events: (data.events || []).map(e => ({
           id: e.id, user_id: uid, name: e.name || "", type: e.type || null,
           performers: e.performers || null, url: e.url || null, memo: e.memo || null
         })),
-        performances: [], applications: [], application_performances: [],
+        performances: [],
+        applications: [],
+        application_performances: [],
         products: (data.products || []).map(p => ({
           id: p.id, user_id: uid, name: p.name || "", type: p.type || null,
           start_at: p.start || null, end_at: p.end || null, venue: p.venue || null,
@@ -120,24 +130,21 @@
           related_event_ids: Array.isArray(s.eventIds) ? s.eventIds : [],
           url: s.url || null, memo: s.memo || null
         })),
-        schedule_days: [],
-        user_settings: [{
-          user_id: uid,
-          ichiban_period: Number(data.settings?.prizePeriods?.["一番くじ"] || 30),
-          ufo_period: Number(data.settings?.prizePeriods?.["UFOキャッチャー"] || 14),
-          other_period: Number(data.settings?.prizePeriods?.["その他景品"] || 30),
-          notify_deadline_1day: true, notify_deadline_1hour: true
-        }]
+        schedule_days: []
       };
 
+      // 既存の関連行IDを再利用するためのマップ。
+      const remotePerfByPair = new Map((remote.application_performances || []).map(r => [`${r.application_id}:${r.performance_id}`, r]));
+      const remoteDayByPair = new Map((remote.schedule_days || []).map(r => [`${r.schedule_id}:${r.date}`, r]));
+
       (data.events || []).forEach(e => {
-        (e.performances || []).forEach(p => rows.performances.push({
+        (e.performances || []).forEach(p => desired.performances.push({
           id: p.id, event_id: e.id, name: p.dayName || null, date: p.date,
           doors_time: p.open || null, start_time: p.start || null,
           venue: p.venue || null, performers: p.performers || null, memo: p.memo || null
         }));
         (e.applications || []).forEach(a => {
-          rows.applications.push({
+          desired.applications.push({
             id: a.id, event_id: e.id, name: a.name || null, method: a.method || null,
             ticket_site_name: a.ticketSiteName || null, start_at: a.start || null,
             end_at: a.end || null, announcement_at: a.announcement || null,
@@ -146,51 +153,122 @@
           });
           (a.performanceIds || []).forEach(pid => {
             if (!pid) return;
-            rows.application_performances.push({
-              id: (window.crypto?.randomUUID ? window.crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0,v=c==="x"?r:(r&3|8);return v.toString(16);})), application_id: a.id, performance_id: pid,
+            const old = remotePerfByPair.get(`${a.id}:${pid}`);
+            desired.application_performances.push({
+              id: old?.id || uuid(), application_id: a.id, performance_id: pid,
               status: (a.performanceStatuses || {})[pid] || a.status || "未応募"
             });
           });
         });
       });
-      (data.products || []).forEach(p => (p.items || []).forEach(it => rows.product_items.push({
+
+      (data.products || []).forEach(p => (p.items || []).forEach(it => desired.product_items.push({
         id: it.id, product_id: p.id, name: it.name || "", price: Number(it.price || 0),
         quantity: Math.max(1, Number(it.quantity || 1)), secured: !!it.secured,
         purchased: !!it.purchased, url: it.url || null, memo: it.memo || null
       })));
-      (data.schedules || []).forEach(s => (s.dailyPlans || []).forEach(d => rows.schedule_days.push({
-        id: d.id || uuidFallback(), schedule_id: s.id, date: d.date,
-        start_time: null, end_time: null, memo: d.text || null
-      })));
 
-      // Delete first so removed records disappear. Parent deletes cascade to children.
-      const del = async (table, column = "user_id") => {
-        let q = this.client.from(table).delete();
-        if (column === "user_id") q = q.eq(column, uid);
-        else q = q.in(column, column === "event_id" ? (data.events || []).map(x => x.id) : []);
-        const { error } = await q;
-        if (error) throw error;
-      };
-      await del("notifications");
-      await del("schedules");
-      await del("products");
-      await del("events");
+      (data.schedules || []).forEach(s => (s.dailyPlans || []).forEach(d => {
+        const old = remoteDayByPair.get(`${s.id}:${d.date}`);
+        desired.schedule_days.push({
+          id: d.id || old?.id || uuid(), schedule_id: s.id, date: d.date,
+          start_time: null, end_time: null, memo: d.text || null
+        });
+      }));
 
-      const insertIfAny = async (table, arr) => {
-        if (!arr.length) return;
-        const { error } = await this.client.from(table).insert(arr);
-        if (error) throw error;
+      const configs = {
+        events: {
+          keys: ["id", "user_id", "name", "type", "performers", "url", "memo"],
+          remote: remote.events || []
+        },
+        performances: {
+          keys: ["id", "event_id", "name", "date", "doors_time", "start_time", "venue", "performers", "memo"],
+          remote: remote.performances || []
+        },
+        applications: {
+          keys: ["id", "event_id", "name", "method", "ticket_site_name", "start_at", "end_at", "announcement_at", "status", "quantity", "payment", "memo"],
+          remote: remote.applications || []
+        },
+        application_performances: {
+          keys: ["id", "application_id", "performance_id", "status"],
+          remote: remote.application_performances || []
+        },
+        products: {
+          keys: ["id", "user_id", "name", "type", "start_at", "end_at", "venue", "url", "image_url", "price", "purchased", "memo"],
+          remote: remote.products || []
+        },
+        product_items: {
+          keys: ["id", "product_id", "name", "price", "quantity", "secured", "purchased", "url", "memo"],
+          remote: remote.product_items || []
+        },
+        schedules: {
+          keys: ["id", "user_id", "name", "start_date", "end_date", "meeting_time", "meeting_place", "start_time", "type", "related_type", "related_id", "related_event_ids", "url", "memo"],
+          remote: remote.schedules || []
+        },
+        schedule_days: {
+          keys: ["id", "schedule_id", "date", "start_time", "end_time", "memo"],
+          remote: remote.schedule_days || []
+        }
       };
-      await insertIfAny("events", rows.events);
-      await insertIfAny("performances", rows.performances);
-      await insertIfAny("applications", rows.applications);
-      await insertIfAny("application_performances", rows.application_performances.filter(x => rows.performances.some(p => p.id === x.performance_id)));
-      await insertIfAny("products", rows.products);
-      await insertIfAny("product_items", rows.product_items);
-      await insertIfAny("schedules", rows.schedules);
-      await insertIfAny("schedule_days", rows.schedule_days);
-      const { error: settingsError } = await this.client.from("user_settings").upsert(rows.user_settings, { onConflict: "user_id" });
-      if (settingsError) throw settingsError;
+
+      const mapById = rows => new Map(rows.map(r => [r.id, r]));
+      const deleteIds = (table, ids) => {
+        if (!ids.length) return Promise.resolve();
+        return this.client.from(table).delete().in("id", ids).then(({ error }) => {
+          if (error) throw error;
+        });
+      };
+      const upsertRows = (table, rows) => {
+        if (!rows.length) return Promise.resolve();
+        return this.client.from(table).upsert(rows, { onConflict: "id" }).then(({ error }) => {
+          if (error) throw error;
+        });
+      };
+
+      // 削除は子→親、追加・更新は親→子の順で実行。
+      const order = [
+        "application_performances", "schedule_days", "product_items",
+        "applications", "performances", "events", "products", "schedules"
+      ];
+      const reverseOrder = [
+        "events", "performances", "applications", "application_performances",
+        "products", "product_items", "schedules", "schedule_days"
+      ];
+
+      for (const table of order) {
+        const cfg = configs[table];
+        const wanted = mapById(desired[table] || []);
+        const remoteMap = mapById(cfg.remote);
+        const removed = cfg.remote.filter(r => !wanted.has(r.id)).map(r => r.id);
+        await deleteIds(table, removed);
+      }
+
+      for (const table of reverseOrder) {
+        const cfg = configs[table];
+        const wantedRows = desired[table] || [];
+        const remoteMap = mapById(cfg.remote);
+        const changed = wantedRows.filter(row => {
+          const old = remoteMap.get(row.id);
+          return !old || !same(row, old, cfg.keys);
+        });
+        await upsertRows(table, changed);
+      }
+
+      // 設定は1ユーザー1行なので、値が変わった場合だけ更新。
+      const settings = {
+        user_id: uid,
+        ichiban_period: Number(data.settings?.prizePeriods?.["一番くじ"] || 30),
+        ufo_period: Number(data.settings?.prizePeriods?.["UFOキャッチャー"] || 14),
+        other_period: Number(data.settings?.prizePeriods?.["その他景品"] || 30),
+        notify_deadline_1day: true,
+        notify_deadline_1hour: true
+      };
+      const oldSettings = (remote.user_settings || [])[0];
+      const settingsKeys = ["user_id", "ichiban_period", "ufo_period", "other_period", "notify_deadline_1day", "notify_deadline_1hour"];
+      if (!oldSettings || !same(settings, oldSettings, settingsKeys)) {
+        const { error } = await this.client.from("user_settings").upsert(settings, { onConflict: "user_id" });
+        if (error) throw error;
+      }
     }
   };
 
