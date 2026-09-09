@@ -11,13 +11,82 @@
     const base = window.RAFFLE_SUPABASE_CONFIG || {};
     return {
       url: cached.url || base.url || "",
-      publishableKey: cached.publishableKey || base.publishableKey || ""
+      publishableKey: cached.publishableKey || base.publishableKey || "",
+      vapidPublicKey: cached.vapidPublicKey || base.vapidPublicKey || ""
     };
   }
 
   function saveConfig(url, publishableKey) {
     localStorage.setItem(CONFIG_KEY, JSON.stringify({ url: String(url || "").trim(), publishableKey: String(publishableKey || "").trim() }));
   }
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map(ch => ch.charCodeAt(0)));
+  }
+
+  async function getPushRegistration() {
+    if (!('serviceWorker' in navigator)) throw new Error('このブラウザはService Workerに対応していません。');
+    return navigator.serviceWorker.register('./sw.js', { scope: './' });
+  }
+
+  window.enableRafflePush = async function () {
+    if (!window.raffleDb?.user) throw new Error('ログインしてください。');
+    if (!('Notification' in window) || !('PushManager' in window)) throw new Error('このブラウザはプッシュ通知に対応していません。');
+    const config = getConfig();
+    if (!config.vapidPublicKey) throw new Error('VAPID公開鍵が設定されていません。supabase-config.js の vapidPublicKey を設定してください。');
+
+    const permission = Notification.permission === 'granted'
+      ? 'granted'
+      : await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error('通知の許可が必要です。ブラウザの通知設定も確認してください。');
+
+    const registration = await getPushRegistration();
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey)
+      });
+    }
+    const json = subscription.toJSON();
+    const payload = {
+      user_id: window.raffleDb.user.id,
+      endpoint: json.endpoint,
+      p256dh: json.keys?.p256dh || '',
+      auth: json.keys?.auth || '',
+      user_agent: navigator.userAgent,
+      last_seen_at: new Date().toISOString()
+    };
+    if (!payload.endpoint || !payload.p256dh || !payload.auth) throw new Error('通知購読情報を取得できませんでした。');
+    const { error } = await window.raffleDb.client.from('push_subscriptions').upsert(payload, { onConflict: 'endpoint' });
+    if (error) throw error;
+    return true;
+  };
+
+  window.disableRafflePush = async function () {
+    if (!window.raffleDb?.user) return;
+    if (!('serviceWorker' in navigator)) return;
+    const registration = await navigator.serviceWorker.getRegistration('./') || await getPushRegistration();
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return;
+    const endpoint = subscription.endpoint;
+    const { error } = await window.raffleDb.client.from('push_subscriptions').delete().eq('user_id', window.raffleDb.user.id).eq('endpoint', endpoint);
+    if (error) throw error;
+    await subscription.unsubscribe();
+  };
+
+  window.getRafflePushStatus = async function () {
+    const permission = 'Notification' in window ? Notification.permission : 'unsupported';
+    let subscribed = false;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('./');
+      subscribed = !!(await reg?.pushManager?.getSubscription());
+    } catch (_) {}
+    return { permission, subscribed };
+  };
 
   window.raffleDb = {
     client: null,
@@ -260,8 +329,8 @@
         ichiban_period: Number(data.settings?.prizePeriods?.["一番くじ"] || 30),
         ufo_period: Number(data.settings?.prizePeriods?.["UFOキャッチャー"] || 14),
         other_period: Number(data.settings?.prizePeriods?.["その他景品"] || 30),
-        notify_deadline_1day: true,
-        notify_deadline_1hour: true
+        notify_deadline_1day: appSettings.notifications?.deadline1day !== false,
+        notify_deadline_1hour: appSettings.notifications?.deadline1hour !== false
       };
       const oldSettings = (remote.user_settings || [])[0];
       const settingsKeys = ["user_id", "ichiban_period", "ufo_period", "other_period", "notify_deadline_1day", "notify_deadline_1hour"];
@@ -394,7 +463,7 @@
     (remote.schedule_days||[]).forEach(r=>{if(!daysBySchedule.has(r.schedule_id))daysBySchedule.set(r.schedule_id,[]);daysBySchedule.get(r.schedule_id).push({id:r.id,date:r.date,text:r.memo||""});});
     schedules=(remote.schedules||[]).map(r=>normalizeSchedule({id:r.id,name:r.name||"",date:r.start_date||"",endDate:r.end_date||r.start_date||"",meetingTime:r.meeting_time?String(r.meeting_time).slice(0,5):"",meetingPlace:r.meeting_place||"",startTime:r.start_time?String(r.start_time).slice(0,5):"",type:r.type||"一般予定",eventIds:Array.isArray(r.related_event_ids)?r.related_event_ids:[],related:"",url:r.url||"",memo:r.memo||"",dailyPlans:daysBySchedule.get(r.id)||[]}));
     const us=(remote.user_settings||[])[0];
-    if(us)appSettings={...appSettings,prizePeriods:{"一番くじ":us.ichiban_period||30,"UFOキャッチャー":us.ufo_period||14,"その他景品":us.other_period||30}};
+    if(us)appSettings={...appSettings,prizePeriods:{"一番くじ":us.ichiban_period||30,"UFOキャッチャー":us.ufo_period||14,"その他景品":us.other_period||30},notifications:{deadline1day:us.notify_deadline_1day!==false,deadline1hour:us.notify_deadline_1hour!==false}};
     localStorage.setItem(KEY.events,JSON.stringify(events));localStorage.setItem(KEY.products,JSON.stringify(products));localStorage.setItem(KEY.schedules,JSON.stringify(schedules));localStorage.setItem(KEY.settings,JSON.stringify(appSettings));
   }
 

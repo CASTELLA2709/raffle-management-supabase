@@ -2083,3 +2083,11 @@ html, body, .app, #screen, .sheet { overscroll-behavior: none; }
 /* ===== Supabase setup / auth ===== */
 .setup-shell{min-height:100vh;background:#101014;color:#f5f5f7;display:flex;align-items:center;justify-content:center;padding:20px;font-family:Arial,"Noto Sans JP",sans-serif}
 .setup-card{width:min(460px,100%);background:#18181e;border:1px solid #2f2f38;border-radius:16px;padding:24px;box-shadow:0 18px 60px #0008}.setup-card h1{font-size:24px;margin:0 0 10px}.setup-card>p{font-size:12px;line-height:1.7;color:#aaaab3;margin:0 0 18px}.setup-icon{width:48px;height:48px;border-radius:14px;background:#9275ed;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:16px}.setup-note{font-size:10px!important}.setup-message{display:none;padding:9px 11px;border-radius:8px;background:#2a171a;border:1px solid #593039;color:#ff9ca3;font-size:11px;margin-bottom:12px}.setup-message.show{display:block}.auth-card .secondary{margin-top:9px}.link-button{width:100%;border:0;background:none;color:#bdafff;text-decoration:underline;padding:10px;cursor:pointer;font-size:11px}.danger-button{width:100%;padding:11px;border-radius:8px;font-weight:700;cursor:pointer;background:#2a171a;border:1px solid #593039;color:#ff858d;margin-top:12px}
+
+
+/* Push notification settings */
+.settings-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 0;border-bottom:1px solid #eee;}
+.settings-toggle-row:last-of-type{margin-bottom:14px;}
+.settings-toggle-row span{display:flex;flex-direction:column;gap:3px;}
+.settings-toggle-row small{color:#777;font-size:12px;}
+.settings-toggle-row input[type="checkbox"]{width:22px;height:22px;accent-color:#8b7bd8;}

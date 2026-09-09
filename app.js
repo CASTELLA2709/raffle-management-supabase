@@ -15,8 +15,9 @@ window.addEventListener("load", lockPortraitOrientation);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) lockPortraitOrientation(); });
 const KEY={events:"event_parent_v1",products:"product_v1",schedules:"schedule_v1",settings:"app_settings_v1"};
 let events=load(KEY.events,[]),products=load(KEY.products,[]),schedules=load(KEY.schedules,[]);
-let appSettings=load(KEY.settings,{prizePeriods:{"一番くじ":30,"UFOキャッチャー":14,"その他景品":30}});
+let appSettings=load(KEY.settings,{prizePeriods:{"一番くじ":30,"UFOキャッチャー":14,"その他景品":30},notifications:{deadline1day:true,deadline1hour:true}});
 appSettings.prizePeriods=Object.assign({"一番くじ":30,"UFOキャッチャー":14,"その他景品":30},appSettings.prizePeriods||{});
+appSettings.notifications=Object.assign({deadline1day:true,deadline1hour:true},appSettings.notifications||{});
 // イベントの公演日ごとの情報を正規化。旧形式の出演者は公演1へ移行する。
 function normalizeEvent(e){
   e=e||{};
@@ -158,7 +159,7 @@ function nav(){
     add.classList.toggle("hidden", hideAdd);
   }
 }
-function render(){nav();switch(state.page){case"home":home();break;case"calendar":calendar();break;case"events":eventsList();break;case"event":eventDetail();break;case"eventForm":eventForm();break;case"products":productsList();break;case"wishlist":wishlistList();break;case"product":productDetail();break;case"productForm":productForm();break;case"schedules":scheduleList();break;case"schedule":scheduleDetail();break;case"scheduleForm":scheduleForm();break;case"orderForm":orderForm();break;case"saleItemForm":saleItemForm();break;case"settings":settingsPage();break;case"settingsDisplay":settingsDisplayPage();break;case"settingsData":settingsDataPage();break;case"settingsAccount":settingsAccountPage();break}}
+function render(){nav();switch(state.page){case"home":home();break;case"calendar":calendar();break;case"events":eventsList();break;case"event":eventDetail();break;case"eventForm":eventForm();break;case"products":productsList();break;case"wishlist":wishlistList();break;case"product":productDetail();break;case"productForm":productForm();break;case"schedules":scheduleList();break;case"schedule":scheduleDetail();break;case"scheduleForm":scheduleForm();break;case"orderForm":orderForm();break;case"saleItemForm":saleItemForm();break;case"settings":settingsPage();break;case"settingsDisplay":settingsDisplayPage();break;case"settingsNotifications":settingsNotificationPage();break;case"settingsData":settingsDataPage();break;case"settingsAccount":settingsAccountPage();break}}
 function go(p){
   // フッターから画面を切り替えたときは、各画面を毎回初期表示状態に戻す
   state.page=p;
@@ -970,6 +971,11 @@ function settingsPage(){
         <span class="settings-menu-text"><b>アカウント</b><small>${typeof window.raffleDb?.user?.email === "string" ? esc(window.raffleDb.user.email) : "Supabaseアカウント"}</small></span>
         <span class="settings-menu-arrow">›</span>
       </button>
+      <button class="settings-menu-card" type="button" onclick="openSettingsSection('notifications')">
+        <span class="settings-menu-icon"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M11 17a9 9 0 0 1 18 0v5l3 5H8l3-5v-5Z"/><path d="M17 31h6"/></svg></span>
+        <span class="settings-menu-text"><b>通知設定</b><small>申込締切のプッシュ通知を設定</small></span>
+        <span class="settings-menu-arrow">›</span>
+      </button>
       <button class="settings-menu-card" type="button" onclick="openSettingsSection('data')">
         <span class="settings-menu-icon data-menu-icon"><svg viewBox="0 0 40 40" aria-hidden="true">
           <path class="data-db" d="M8 9.5C8 7.57 13.37 6 20 6s12 1.57 12 3.5S26.63 13 20 13 8 11.43 8 9.5Z"/>
@@ -995,6 +1001,45 @@ function settingsDisplayPage(){
       </div>
     </div>`;
 }
+function settingsNotificationPage(){
+  title("通知設定",true);
+  const n=appSettings.notifications||{};
+  document.getElementById("screen").innerHTML=`
+    <div class="section settings-page">
+      <div class="settings-card">
+        <h2>プッシュ通知</h2>
+        <p class="sub">アプリを閉じていても、申込締切が近づいたときに端末へ通知します。</p>
+        <div class="settings-actions settings-actions-column">
+          <button class="primary" type="button" onclick="enablePushNotifications()">この端末で通知を有効にする</button>
+          <button class="secondary" type="button" onclick="disablePushNotifications()">この端末の通知を解除</button>
+        </div>
+        <div id="pushStatus" class="form-note" style="margin-top:10px">通知状態を確認中…</div>
+      </div>
+      <div class="settings-card">
+        <h2>締切通知</h2>
+        <p class="sub">申込済み・当選・落選の申込は通知しません。</p>
+        <label class="settings-toggle-row"><span><b>1日前</b><small>締切の約24時間前</small></span><input id="notifyDeadline1day" type="checkbox" ${n.deadline1day!==false?"checked":""}></label>
+        <label class="settings-toggle-row"><span><b>1時間前</b><small>締切の約1時間前</small></span><input id="notifyDeadline1hour" type="checkbox" ${n.deadline1hour!==false?"checked":""}></label>
+        <button class="primary" type="button" onclick="saveNotificationSettings()">設定を保存</button>
+      </div>
+    </div>`;
+  updatePushStatus();
+}
+async function updatePushStatus(){
+  const el=document.getElementById("pushStatus");if(!el)return;
+  try{const s=await window.getRafflePushStatus();el.textContent=s.subscribed?"この端末の通知：有効":"この端末の通知：未設定（ボタンから有効化してください）";}catch(e){el.textContent="このブラウザでは通知状態を確認できません。";}
+}
+async function enablePushNotifications(){
+  try{await window.enableRafflePush();alert("この端末の通知を有効にしました。");updatePushStatus();}catch(e){alert(e.message||"通知の有効化に失敗しました。");}
+}
+async function disablePushNotifications(){
+  try{await window.disableRafflePush();alert("この端末の通知を解除しました。");updatePushStatus();}catch(e){alert(e.message||"通知の解除に失敗しました。");}
+}
+function saveNotificationSettings(){
+  appSettings.notifications={deadline1day:document.getElementById("notifyDeadline1day")?.checked!==false,deadline1hour:document.getElementById("notifyDeadline1hour")?.checked!==false};
+  save(KEY.settings,appSettings);alert("通知設定を保存しました。");
+}
+
 function settingsDataPage(){
   title("データ管理",true);
   document.getElementById("screen").innerHTML=`
@@ -1022,7 +1067,7 @@ function settingsAccountPage(){
 function openSettingsSection(section){
   state.settingsSection=section;
   // 設定トップへ戻ったあと、さらに元の画面へ戻れるように元のreturnPageは維持
-  state.page=section==='display'?"settingsDisplay":"settingsData";
+  state.page=section==='display'?"settingsDisplay":section==='notifications'?"settingsNotifications":"settingsData";
   render();
 }
 function saveSettings(){
@@ -1046,7 +1091,7 @@ function deleteAllData(){
   events=[];products=[];schedules=[];save(KEY.events,events);save(KEY.products,products);save(KEY.schedules,schedules);alert("すべてのデータを削除しました。");go("home");
 }
 function openSettings(){state.returnPage=state.page;state.settingsSection=null;state.page="settings";render()}
-window.openSettings=openSettings;window.saveSettings=saveSettings;window.backupData=backupData;window.restoreData=restoreData;window.deleteAllData=deleteAllData;
+window.openSettings=openSettings;window.saveSettings=saveSettings;window.saveNotificationSettings=saveNotificationSettings;window.enablePushNotifications=enablePushNotifications;window.disablePushNotifications=disablePushNotifications;window.backupData=backupData;window.restoreData=restoreData;window.deleteAllData=deleteAllData;
 function calendar(){
  title("カレンダー");
  const y=state.calendarDate.getFullYear(),m=state.calendarDate.getMonth();

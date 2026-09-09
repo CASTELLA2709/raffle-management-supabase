@@ -7,5 +7,7 @@
  */
 window.RAFFLE_SUPABASE_CONFIG = {
   url: "https://rtwthkzmsqylvdfekiff.supabase.co",
-  publishableKey: ""
+  publishableKey: "",
+  // Supabase Push用Edge Functionで発行したVAPID公開鍵を設定してください。
+  vapidPublicKey: "BLUQ6xxp4bf-iBDXnch853uOUdyhvt__7RPVCKVZy4fg7DfreEpRRCo7XPkbsnKoJnm2iYnKDI5-fJtJxsGb-Fw"
 };
