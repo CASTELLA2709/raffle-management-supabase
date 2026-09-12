@@ -2,6 +2,31 @@
  * 抽選管理 - Supabase integration
  * ========================================================= */
 (function () {
+  function localDateTimeToISO(value) {
+    if (!value) return null;
+
+    // このアプリは日本時間で入力する
+    return new Date(`${value}:00+09:00`).toISOString();
+  }
+
+  function isoToLocalDateTime(value) {
+    if (!value) return "";
+
+    const d = new Date(value);
+
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    })
+      .format(d)
+      .replace(" ", "T");
+  }
+
   const CONFIG_KEY = "raffle_supabase_config_v1";
   const cached = (() => {
     try { return JSON.parse(localStorage.getItem(CONFIG_KEY)) || {}; } catch { return {}; }
@@ -214,11 +239,18 @@
         }));
         (e.applications || []).forEach(a => {
           desired.applications.push({
-            id: a.id, event_id: e.id, name: a.name || null, method: a.method || null,
-            ticket_site_name: a.ticketSiteName || null, start_at: a.start || null,
-            end_at: a.end || null, announcement_at: a.announcement || null,
-            status: a.status || null, quantity: Number(a.quantity || 1),
-            payment: a.payment || null, memo: a.memo || null
+              id: a.id,
+              event_id: e.id,
+              name: a.name || null,
+              method: a.method || null,
+              ticket_site_name: a.ticketSiteName || null,
+              start_at: localDateTimeToISO(a.start),
+              end_at: localDateTimeToISO(a.end),
+              announcement_at: localDateTimeToISO(a.announcement),
+              status: a.status || null,
+              quantity: Number(a.quantity || 1),
+              payment: a.payment || null,
+              memo: a.memo || null
           });
           (a.performanceIds || []).forEach(pid => {
             if (!pid) return;
@@ -445,7 +477,19 @@
     });
     const appsByEvent = new Map();
     (remote.applications||[]).forEach(r=>{
-      const a={id:r.id,name:r.name||"",method:r.method||"抽選",ticketSiteName:r.ticket_site_name||"",start:r.start_at||"",end:r.end_at||"",announcement:r.announcement_at||"",status:r.status||"未応募",quantity:r.quantity||1,payment:r.payment||"",memo:r.memo||"",performanceIds:[],performanceStatuses:{}};
+      const a={  id:r.id,
+                name:r.name||"",
+                method:r.method||"抽選",
+                ticketSiteName:r.ticket_site_name||"",
+                start:isoToLocalDateTime(r.start_at),
+                end:isoToLocalDateTime(r.end_at),
+                announcement:isoToLocalDateTime(r.announcement_at),
+                status:r.status||"未応募",
+                quantity:r.quantity||1,
+                payment:r.payment||"",
+                memo:r.memo||"",
+                performanceIds:[],
+                performanceStatuses:{}};
       if(!appsByEvent.has(r.event_id))appsByEvent.set(r.event_id,[]);appsByEvent.get(r.event_id).push(a);
     });
     (remote.application_performances||[]).forEach(r=>{
