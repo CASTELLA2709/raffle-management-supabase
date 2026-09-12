@@ -1081,87 +1081,152 @@ function backupData(){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`raffle-manager-backup-${localDateKey(new Date())}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 async function restoreData(input){
-  const file=input.files?.[0];
-  if(!file)return;
+  const file = input.files?.[0];
+  if (!file) return;
 
-  const reader=new FileReader();
+  const reader = new FileReader();
 
-  reader.onload=async()=>{
-    try{
-      const d=JSON.parse(reader.result);
+  reader.onload = async () => {
+    try {
+      const d = JSON.parse(reader.result);
 
-      if(
+      if (
         !Array.isArray(d.events) ||
         !Array.isArray(d.products) ||
         !Array.isArray(d.schedules)
-      ){
-        throw new Error("バックアップデータの形式が正しくありません。");
+      ) {
+        throw new Error("バックアップ形式が正しくありません。");
       }
 
-      if(!confirm("バックアップデータで現在のデータを置き換えます。よろしいですか？")){
+      if (
+        !confirm(
+          "バックアップデータを復元します。\n\n" +
+          "Databaseにも追加保存されます。よろしいですか？"
+        )
+      ) {
         return;
       }
 
-      // バックアップを読み込み
-      events=d.events.map(normalizeEvent);
-      products=d.products;
-      schedules=d.schedules.map(normalizeSchedule);
+      // ----------------------------------------
+      // Supabaseへ先に保存
+      // ----------------------------------------
 
-      appSettings=Object.assign(
-        {
-          prizePeriods:{
-            "一番くじ":30,
-            "UFOキャッチャー":14,
-            "その他景品":30
-          }
-        },
-        d.settings||{}
-      );
+      if (
+        window.raffleDb &&
+        window.raffleDb.user &&
+        typeof window.raffleDb.importBackup === "function"
+      ) {
 
-      // ★旧形式のIDをUUIDへ変換
-      await migrateLegacyIds();
+        const imported = await window.raffleDb.importBackup(d);
 
-      // ★まずSupabaseへ保存
-      if(window.raffleDb?.user){
-        await window.raffleDb.syncAll({
-          events:JSON.parse(JSON.stringify(events)),
-          products:JSON.parse(JSON.stringify(products)),
-          schedules:JSON.parse(JSON.stringify(schedules)),
-          settings:JSON.parse(JSON.stringify(appSettings))
-        });
+        if (!imported) {
+          throw new Error("Databaseへのインポート結果を取得できませんでした。");
+        }
+
+        // importBackup内でIDが新UUIDへ変換された
+        events = imported.events.map(normalizeEvent);
+        products = imported.products;
+        schedules = imported.schedules.map(normalizeSchedule);
+
+        appSettings = Object.assign(
+          {
+            prizePeriods: {
+              "一番くじ": 30,
+              "UFOキャッチャー": 14,
+              "その他景品": 30
+            }
+          },
+          imported.settings || {}
+        );
+
+        // 重要：
+        // save() は使わない。
+        // save() → queueRaffleSync() が走ると、
+        // importBackup直後のDBと競合する可能性があるため。
+        localStorage.setItem(
+          KEY.events,
+          JSON.stringify(events)
+        );
+
+        localStorage.setItem(
+          KEY.products,
+          JSON.stringify(products)
+        );
+
+        localStorage.setItem(
+          KEY.schedules,
+          JSON.stringify(schedules)
+        );
+
+        localStorage.setItem(
+          KEY.settings,
+          JSON.stringify(appSettings)
+        );
+
+        render();
+
+        alert(
+          "バックアップを復元しました。\n\n" +
+          "Databaseへの保存も完了しています。"
+        );
+
+      } else {
+
+        // ----------------------------------------
+        // Supabase未接続時
+        // ----------------------------------------
+
+        events = d.events.map(normalizeEvent);
+        products = d.products;
+        schedules = d.schedules.map(normalizeSchedule);
+
+        appSettings = Object.assign(
+          {
+            prizePeriods: {
+              "一番くじ": 30,
+              "UFOキャッチャー": 14,
+              "その他景品": 30
+            }
+          },
+          d.settings || {}
+        );
+
+        localStorage.setItem(
+          KEY.events,
+          JSON.stringify(events)
+        );
+
+        localStorage.setItem(
+          KEY.products,
+          JSON.stringify(products)
+        );
+
+        localStorage.setItem(
+          KEY.schedules,
+          JSON.stringify(schedules)
+        );
+
+        localStorage.setItem(
+          KEY.settings,
+          JSON.stringify(appSettings)
+        );
+
+        render();
+
+        alert("データを復元しました。");
       }
 
-      // ★Supabase保存成功後にLocalStorageへ保存
-      localStorage.setItem(
-        KEY.events,
-        JSON.stringify(events)
-      );
-      localStorage.setItem(
-        KEY.products,
-        JSON.stringify(products)
-      );
-      localStorage.setItem(
-        KEY.schedules,
-        JSON.stringify(schedules)
-      );
-      localStorage.setItem(
-        KEY.settings,
-        JSON.stringify(appSettings)
-      );
+    } catch(e) {
 
-      alert("データを復元しました。");
-      render();
-
-    }catch(e){
-      console.error("バックアップ復元エラー:",e);
+      console.error("バックアップ復元エラー:", e);
 
       alert(
-        "Databaseへの保存に失敗しました。\n\n"+
-        (e.message||e)
+        "バックアップデータの復元に失敗しました。\n\n" +
+        (e.message || e)
       );
 
-    }finally{
-      input.value="";
+    } finally {
+      input.value = "";
     }
   };
 

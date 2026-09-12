@@ -434,12 +434,28 @@
       }
 
       const uid = this.user.id;
-
       const uuid = () => uuidFallback();
 
-      // ---------------------------------------------------------
-      // 1. ID変換マップ
-      // ---------------------------------------------------------
+      // ----------------------------------------
+      // UUID判定
+      // ----------------------------------------
+      const isUUID = value =>
+        typeof value === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+      // ----------------------------------------
+      // バックアップを直接変更しない
+      // ----------------------------------------
+      const src = JSON.parse(JSON.stringify(data || {}));
+
+      const sourceEvents = Array.isArray(src.events) ? src.events : [];
+      const sourceProducts = Array.isArray(src.products) ? src.products : [];
+      const sourceSchedules = Array.isArray(src.schedules) ? src.schedules : [];
+
+      // ----------------------------------------
+      // ID変換マップ
+      // 旧ID → 新UUID
+      // ----------------------------------------
       const eventMap = new Map();
       const perfMap = new Map();
       const appMap = new Map();
@@ -448,307 +464,398 @@
       const scheduleMap = new Map();
       const dayMap = new Map();
 
-      // ---------------------------------------------------------
-      // 2. 新しいUUIDを発行
-      // ---------------------------------------------------------
-
-      // イベント
-      (data.events || []).forEach(e => {
-        const oldId = String(e.id || "");
+      // ----------------------------------------
+      // Event ID
+      // ----------------------------------------
+      sourceEvents.forEach(event => {
+        const oldId = event.id;
         const newId = uuid();
 
-        if (oldId) {
-          eventMap.set(oldId, newId);
+        if (oldId != null) {
+          eventMap.set(String(oldId), newId);
         }
 
-        e.id = newId;
+        event.id = newId;
       });
 
-      // 公演
-      (data.events || []).forEach(e => {
-        (e.performances || []).forEach(p => {
-          const oldId = String(p.id || "");
+      // ----------------------------------------
+      // Performance ID
+      // ----------------------------------------
+      sourceEvents.forEach(event => {
+        (Array.isArray(event.performances) ? event.performances : []).forEach(perf => {
+          const oldId = perf.id;
           const newId = uuid();
 
-          if (oldId) {
-            perfMap.set(oldId, newId);
+          if (oldId != null) {
+            perfMap.set(String(oldId), newId);
           }
 
-          p.id = newId;
+          perf.id = newId;
         });
       });
 
-      // 応募
-      (data.events || []).forEach(e => {
-        (e.applications || []).forEach(a => {
-          const oldId = String(a.id || "");
+      // ----------------------------------------
+      // Application ID
+      // ----------------------------------------
+      sourceEvents.forEach(event => {
+        (Array.isArray(event.applications) ? event.applications : []).forEach(app => {
+          const oldId = app.id;
           const newId = uuid();
 
-          if (oldId) {
-            appMap.set(oldId, newId);
+          if (oldId != null) {
+            appMap.set(String(oldId), newId);
           }
 
-          a.id = newId;
+          app.id = newId;
         });
       });
 
-      // 商品・商品明細
-      (data.products || []).forEach(p => {
-        const oldId = String(p.id || "");
-        const newId = uuid();
+      // ----------------------------------------
+      // Product / Item ID
+      // ----------------------------------------
+      sourceProducts.forEach(product => {
+        const oldProductId = product.id;
+        const newProductId = uuid();
 
-        if (oldId) {
-          productMap.set(oldId, newId);
+        if (oldProductId != null) {
+          productMap.set(String(oldProductId), newProductId);
         }
 
-        p.id = newId;
+        product.id = newProductId;
 
-        (p.items || []).forEach(item => {
-          const oldItemId = String(item.id || "");
+        (Array.isArray(product.items) ? product.items : []).forEach(item => {
+          const oldItemId = item.id;
           const newItemId = uuid();
 
-          if (oldItemId) {
-            itemMap.set(oldItemId, newItemId);
+          if (oldItemId != null) {
+            itemMap.set(String(oldItemId), newItemId);
           }
 
           item.id = newItemId;
         });
       });
 
-      // 予定・日別予定
-      (data.schedules || []).forEach(s => {
-        const oldId = String(s.id || "");
-        const newId = uuid();
+      // ----------------------------------------
+      // Schedule / DailyPlan ID
+      // ----------------------------------------
+      sourceSchedules.forEach(schedule => {
+        const oldScheduleId = schedule.id;
+        const newScheduleId = uuid();
 
-        if (oldId) {
-          scheduleMap.set(oldId, newId);
+        if (oldScheduleId != null) {
+          scheduleMap.set(String(oldScheduleId), newScheduleId);
         }
 
-        s.id = newId;
+        schedule.id = newScheduleId;
 
-        (s.dailyPlans || []).forEach(d => {
-          const oldDayId = String(d.id || "");
+        (Array.isArray(schedule.dailyPlans) ? schedule.dailyPlans : []).forEach(day => {
+          const oldDayId = day.id;
           const newDayId = uuid();
 
-          if (oldDayId) {
-            dayMap.set(oldDayId, newDayId);
+          if (oldDayId != null) {
+            dayMap.set(String(oldDayId), newDayId);
           }
 
-          d.id = newDayId;
+          day.id = newDayId;
         });
       });
 
-      // ---------------------------------------------------------
-      // 3. 関連IDを新しいUUIDへ付け替え
-      // ---------------------------------------------------------
+      // ----------------------------------------
+      // 参照IDを変換
+      // ----------------------------------------
 
-      (data.events || []).forEach(e => {
+      // Performance / Application
+      sourceEvents.forEach(event => {
 
-        // イベントに紐づく公演
-        (e.performances || []).forEach(p => {
-          // IDはすでに新ID
-        });
+        (Array.isArray(event.performances) ? event.performances : [])
+          .forEach(perf => {
+            // event.id はすでに新UUID
+          });
 
-        // 応募
-        (e.applications || []).forEach(a => {
+        (Array.isArray(event.applications) ? event.applications : [])
+          .forEach(app => {
 
-          // performanceIds
-          a.performanceIds = (a.performanceIds || [])
-            .map(pid => perfMap.get(String(pid)))
-            .filter(Boolean);
-
-          // performanceStatuses
-          const newStatuses = {};
-
-          Object.entries(a.performanceStatuses || {}).forEach(([pid, status]) => {
-            const newPid = perfMap.get(String(pid));
-
-            if (newPid) {
-              newStatuses[newPid] = status;
+            // performanceIds
+            if (Array.isArray(app.performanceIds)) {
+              app.performanceIds = app.performanceIds
+                .map(id => perfMap.get(String(id)))
+                .filter(Boolean);
+            } else {
+              app.performanceIds = [];
             }
-          });
 
-          a.performanceStatuses = newStatuses;
-        });
+            // performanceStatuses
+            const newStatuses = {};
+
+            if (
+              app.performanceStatuses &&
+              typeof app.performanceStatuses === "object"
+            ) {
+              Object.entries(app.performanceStatuses).forEach(([oldId, status]) => {
+                const newId = perfMap.get(String(oldId));
+
+                if (newId) {
+                  newStatuses[newId] = status;
+                }
+              });
+            }
+
+            app.performanceStatuses = newStatuses;
+          });
       });
 
-      // schedules.eventIds
-      (data.schedules || []).forEach(s => {
-        s.eventIds = (s.eventIds || [])
-          .map(eid => eventMap.get(String(eid)))
-          .filter(Boolean);
+      // ----------------------------------------
+      // Schedule の eventIds
+      // ----------------------------------------
+      sourceSchedules.forEach(schedule => {
+
+        if (Array.isArray(schedule.eventIds)) {
+          schedule.eventIds = schedule.eventIds
+            .map(id => eventMap.get(String(id)))
+            .filter(Boolean);
+        } else {
+          schedule.eventIds = [];
+        }
+
+        /*
+        * 現在のアプリでは related_id は
+        * syncAll() でも保存対象を null にしているため、
+        * 古いバックアップに残っている旧IDを
+        * そのままSupabaseへ渡さない。
+        */
+        schedule.related_id = null;
+        schedule.related_type = null;
       });
 
-      // ---------------------------------------------------------
-      // 4. Supabaseへ登録するデータを作成
-      // ---------------------------------------------------------
+      // ----------------------------------------
+      // 日付変換
+      // ----------------------------------------
 
-      const eventsRows = [];
-      const performancesRows = [];
-      const applicationsRows = [];
-      const applicationPerformancesRows = [];
+      function backupDateTimeToISO(value) {
+        if (!value) return null;
 
-      const productsRows = [];
-      const productItemsRows = [];
+        const s = String(value).trim();
 
-      const schedulesRows = [];
-      const scheduleDaysRows = [];
+        if (!s) return null;
 
-      // ---------------------------------------------------------
-      // events
-      // ---------------------------------------------------------
+        // すでにISO形式
+        if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+          const d = new Date(
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)
+              ? `${s}:00+09:00`
+              : s
+          );
 
-      (data.events || []).forEach(e => {
+          return Number.isNaN(d.getTime())
+            ? null
+            : d.toISOString();
+        }
 
-        eventsRows.push({
-          id: e.id,
-          user_id: uid,
-          name: e.name || "",
-          type: e.type || null,
-          performers: e.performers || null,
-          url: e.url || null,
-          memo: e.memo || null
-        });
+        return null;
+      }
 
-        // performances
-        (e.performances || []).forEach(p => {
+      function backupDateToISO(value) {
+        if (!value) return null;
 
-          performancesRows.push({
-            id: p.id,
-            event_id: e.id,
-            name: p.dayName || null,
-            date: p.date || null,
-            doors_time: p.open || null,
-            start_time: p.start || null,
-            venue: p.venue || null,
-            performers: p.performers || null,
-            memo: p.memo || null
+        const s = String(value).trim();
+
+        if (!s) return null;
+
+        // YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          return `${s}T00:00:00+09:00`;
+        }
+
+        // ISO datetime
+        const d = new Date(s);
+
+        return Number.isNaN(d.getTime())
+          ? null
+          : d.toISOString();
+      }
+
+      // ----------------------------------------
+      // Supabase用データ作成
+      // ----------------------------------------
+
+      const eventRows = sourceEvents.map(event => ({
+        id: event.id,
+        user_id: uid,
+        name: event.name || "",
+        type: event.type || null,
+        performers: event.performers || null,
+        url: event.url || null,
+        memo: event.memo || null
+      }));
+
+      const performanceRows = [];
+
+      sourceEvents.forEach(event => {
+        (Array.isArray(event.performances) ? event.performances : [])
+          .forEach(perf => {
+            performanceRows.push({
+              id: perf.id,
+              event_id: event.id,
+              name: perf.dayName || perf.name || null,
+              date: perf.date || null,
+              doors_time: perf.open || null,
+              start_time: perf.start || null,
+              venue: perf.venue || null,
+              performers: perf.performers || null,
+              memo: perf.memo || null
+            });
           });
-        });
+      });
 
-        // applications
-        (e.applications || []).forEach(a => {
+      const applicationRows = [];
+      const applicationPerformanceRows = [];
 
-          applicationsRows.push({
-            id: a.id,
-            event_id: e.id,
-            name: a.name || null,
-            method: a.method || null,
-            ticket_site_name: a.ticketSiteName || null,
+      sourceEvents.forEach(event => {
 
-            // datetime-local
-            start_at: localDateTimeToISO(a.start),
-            end_at: localDateTimeToISO(a.end),
+        (Array.isArray(event.applications) ? event.applications : [])
+          .forEach(app => {
 
-            // announcementはdate型として扱う
-            announcement_at: localDateToISO(a.announcement),
+            applicationRows.push({
+              id: app.id,
+              event_id: event.id,
+              name: app.name || null,
+              method: app.method || null,
+              ticket_site_name: app.ticketSiteName || null,
 
-            status: a.status || null,
-            quantity: Number(a.quantity || 1),
-            payment: a.payment || null,
-            memo: a.memo || null
-          });
+              start_at: backupDateTimeToISO(app.start),
+              end_at: backupDateTimeToISO(app.end),
+              announcement_at: backupDateTimeToISO(app.announcement),
 
-          // application_performances
-          (a.performanceIds || []).forEach(pid => {
-
-            applicationPerformancesRows.push({
-              id: uuid(),
-              application_id: a.id,
-              performance_id: pid,
-              status:
-                (a.performanceStatuses || {})[pid]
-                || a.status
-                || "未応募"
+              status: app.status || null,
+              quantity: Number(app.quantity || 1),
+              payment: app.payment || null,
+              memo: app.memo || null
             });
 
+            const performanceIds =
+              Array.isArray(app.performanceIds)
+                ? app.performanceIds
+                : [];
+
+            performanceIds.forEach(performanceId => {
+
+              if (!isUUID(performanceId)) {
+                console.warn(
+                  "UUIDではないperformanceIdをスキップ:",
+                  performanceId
+                );
+                return;
+              }
+
+              const status =
+                app.performanceStatuses?.[performanceId] ||
+                app.status ||
+                "未応募";
+
+              applicationPerformanceRows.push({
+                id: uuid(),
+                application_id: app.id,
+                performance_id: performanceId,
+                status
+              });
+            });
           });
-        });
       });
 
-      // ---------------------------------------------------------
-      // products
-      // ---------------------------------------------------------
+      // ----------------------------------------
+      // Product
+      // ----------------------------------------
 
-      (data.products || []).forEach(p => {
+      const productRows = sourceProducts.map(product => ({
+        id: product.id,
+        user_id: uid,
+        name: product.name || "",
+        type: product.type || null,
 
-        productsRows.push({
-          id: p.id,
-          user_id: uid,
-          name: p.name || "",
-          type: p.type || null,
-          start_at: p.start || null,
-          end_at: p.end || null,
-          venue: p.venue || null,
-          url: p.url || null,
-          image_url: p.image_url || null,
-          price: p.price ?? null,
-          purchased: !!p.purchased,
-          memo: p.memo || null
-        });
+        start_at: backupDateToISO(product.start),
+        end_at: backupDateToISO(product.end),
 
-        (p.items || []).forEach(item => {
+        venue: product.venue || null,
+        url: product.url || null,
+        image_url: product.image_url || null,
+        price: product.price ?? null,
+        purchased: !!product.purchased,
+        memo: product.memo || null
+      }));
 
-          productItemsRows.push({
-            id: item.id,
-            product_id: p.id,
-            name: item.name || "",
-            price: Number(item.price || 0),
-            quantity: Math.max(1, Number(item.quantity || 1)),
-            secured: !!item.secured,
-            purchased: !!item.purchased,
-            url: item.url || null,
-            memo: item.memo || null
+      const productItemRows = [];
+
+      sourceProducts.forEach(product => {
+        (Array.isArray(product.items) ? product.items : [])
+          .forEach(item => {
+
+            productItemRows.push({
+              id: item.id,
+              product_id: product.id,
+              name: item.name || "",
+              price: Number(item.price || 0),
+              quantity: Math.max(1, Number(item.quantity || 1)),
+              secured: !!item.secured,
+              purchased: !!item.purchased,
+              url: item.url || null,
+              memo: item.memo || null
+            });
           });
-
-        });
       });
 
-      // ---------------------------------------------------------
-      // schedules
-      // ---------------------------------------------------------
+      // ----------------------------------------
+      // Schedule
+      // ----------------------------------------
 
-      (data.schedules || []).forEach(s => {
+      const scheduleRows = sourceSchedules.map(schedule => ({
+        id: schedule.id,
+        user_id: uid,
+        name: schedule.name || "",
+        start_date: schedule.date || null,
+        end_date: schedule.endDate || schedule.date || null,
+        meeting_time: schedule.meetingTime || null,
+        meeting_place: schedule.meetingPlace || null,
+        start_time: schedule.startTime || null,
+        type: schedule.type || null,
+        related_type: null,
+        related_id: null,
 
-        schedulesRows.push({
-          id: s.id,
-          user_id: uid,
-          name: s.name || "",
-          start_date: s.date || null,
-          end_date: s.endDate || s.date || null,
-          meeting_time: s.meetingTime || null,
-          meeting_place: s.meetingPlace || null,
-          start_time: s.startTime || null,
-          type: s.type || null,
-          related_type: null,
-          related_id: null,
-          related_event_ids: Array.isArray(s.eventIds)
-            ? s.eventIds
+        related_event_ids:
+          Array.isArray(schedule.eventIds)
+            ? schedule.eventIds.filter(isUUID)
             : [],
-          url: s.url || null,
-          memo: s.memo || null
-        });
 
-        (s.dailyPlans || []).forEach(d => {
+        url: schedule.url || null,
+        memo: schedule.memo || null
+      }));
 
-          scheduleDaysRows.push({
-            id: d.id,
-            schedule_id: s.id,
-            date: d.date || null,
+      const scheduleDayRows = [];
+
+      sourceSchedules.forEach(schedule => {
+
+        (Array.isArray(schedule.dailyPlans)
+          ? schedule.dailyPlans
+          : []
+        ).forEach(day => {
+
+          scheduleDayRows.push({
+            id: day.id,
+            schedule_id: schedule.id,
+            date: day.date || null,
             start_time: null,
             end_time: null,
-            memo: d.text || null
+            memo: day.text || day.memo || null
           });
 
         });
       });
 
-      // ---------------------------------------------------------
-      // 5. 親 → 子の順番で追加
-      // ※ DELETEは一切しない
-      // ---------------------------------------------------------
+      // ----------------------------------------
+      // DBへ保存
+      // 親 → 子 の順番
+      // ----------------------------------------
 
-      const upsertRows = async (table, rows) => {
+      const upsert = async (table, rows) => {
 
         if (!rows.length) return;
 
@@ -757,77 +864,66 @@
           .upsert(rows, { onConflict: "id" });
 
         if (error) {
+          console.error(`${table} import error`, error, rows);
           throw new Error(
-            `${table} の復元に失敗しました: ${error.message}`
+            `${table}への保存に失敗しました。\n${error.message || error}`
           );
         }
       };
 
-      // events
-      await upsertRows("events", eventsRows);
+      await upsert("events", eventRows);
+      await upsert("performances", performanceRows);
+      await upsert("applications", applicationRows);
+      await upsert("application_performances", applicationPerformanceRows);
 
-      // performances
-      await upsertRows("performances", performancesRows);
+      await upsert("products", productRows);
+      await upsert("product_items", productItemRows);
 
-      // applications
-      await upsertRows("applications", applicationsRows);
+      await upsert("schedules", scheduleRows);
+      await upsert("schedule_days", scheduleDayRows);
 
-      // application_performances
-      await upsertRows(
-        "application_performances",
-        applicationPerformancesRows
-      );
+      // ----------------------------------------
+      // 設定
+      // ----------------------------------------
 
-      // products
-      await upsertRows("products", productsRows);
+      const settings = {
+        user_id: uid,
+        ichiban_period:
+          Number(src.settings?.prizePeriods?.["一番くじ"] || 30),
 
-      // product_items
-      await upsertRows("product_items", productItemsRows);
+        ufo_period:
+          Number(src.settings?.prizePeriods?.["UFOキャッチャー"] || 14),
 
-      // schedules
-      await upsertRows("schedules", schedulesRows);
+        other_period:
+          Number(src.settings?.prizePeriods?.["その他景品"] || 30),
 
-      // schedule_days
-      await upsertRows("schedule_days", scheduleDaysRows);
+        notify_deadline_1day:
+          src.settings?.notifications?.deadline1day !== false,
 
-      // ---------------------------------------------------------
-      // 6. 設定
-      // ---------------------------------------------------------
+        notify_deadline_1hour:
+          src.settings?.notifications?.deadline1hour !== false
+      };
 
-      if (data.settings) {
+      const { error: settingsError } = await this.client
+        .from("user_settings")
+        .upsert(settings, { onConflict: "user_id" });
 
-        const settings = {
-          user_id: uid,
-          ichiban_period:
-            Number(
-              data.settings.prizePeriods?.["一番くじ"] || 30
-            ),
-          ufo_period:
-            Number(
-              data.settings.prizePeriods?.["UFOキャッチャー"] || 14
-            ),
-          other_period:
-            Number(
-              data.settings.prizePeriods?.["その他景品"] || 30
-            ),
-          notify_deadline_1day:
-            data.settings.notifications?.deadline1day !== false,
-          notify_deadline_1hour:
-            data.settings.notifications?.deadline1hour !== false
-        };
-
-        const { error } = await this.client
-          .from("user_settings")
-          .upsert(settings, { onConflict: "user_id" });
-
-        if (error) {
-          throw new Error(
-            `user_settings の復元に失敗しました: ${error.message}`
-          );
-        }
+      if (settingsError) {
+        throw new Error(
+          `user_settingsへの保存に失敗しました。\n${settingsError.message}`
+        );
       }
 
-      return data;
+      // ----------------------------------------
+      // DB保存成功
+      // ----------------------------------------
+
+      return {
+        events: sourceEvents,
+        products: sourceProducts,
+        schedules: sourceSchedules,
+        settings: src.settings || {}
+      };
     },
   };
 
