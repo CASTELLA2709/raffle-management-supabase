@@ -1081,9 +1081,158 @@ function backupData(){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`raffle-manager-backup-${localDateKey(new Date())}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 function restoreData(input){
-  const file=input.files?.[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=()=>{try{const d=JSON.parse(reader.result);if(!Array.isArray(d.events)||!Array.isArray(d.products)||!Array.isArray(d.schedules))throw new Error();if(!confirm("バックアップデータで現在のデータを置き換えます。よろしいですか？"))return;events=d.events.map(normalizeEvent);products=d.products;schedules=d.schedules.map(normalizeSchedule);appSettings=Object.assign({prizePeriods:{"一番くじ":30,"UFOキャッチャー":14,"その他景品":30}},d.settings||{});save(KEY.events,events);save(KEY.products,products);save(KEY.schedules,schedules);save(KEY.settings,appSettings);alert("データを復元しました。");render();}catch(e){alert("バックアップファイルを読み込めませんでした。");}finally{input.value="";}};reader.readAsText(file);
+
+  const file = input.files?.[0];
+
+  if (!file) return;
+
+  const reader = new FileReader();
+
+  reader.onload = async () => {
+
+    try {
+
+      const d = JSON.parse(reader.result);
+
+      // ---------------------------------------------------------
+      // JSONチェック
+      // ---------------------------------------------------------
+
+      if (
+        !Array.isArray(d.events) ||
+        !Array.isArray(d.products) ||
+        !Array.isArray(d.schedules)
+      ) {
+        throw new Error(
+          "バックアップファイルの形式が正しくありません。"
+        );
+      }
+
+      if (
+        !confirm(
+          "バックアップデータで現在のデータを置き換えます。\n\n" +
+          "LocalStorageのデータはバックアップ内容に置き換わります。\n" +
+          "Supabaseには既存データを削除せず、バックアップデータを追加します。\n\n" +
+          "よろしいですか？"
+        )
+      ) {
+        return;
+      }
+
+      // ---------------------------------------------------------
+      // 1. LocalStorage用データをセット
+      // ---------------------------------------------------------
+
+      events = d.events.map(normalizeEvent);
+
+      products = d.products || [];
+
+      schedules = d.schedules.map(normalizeSchedule);
+
+      appSettings = Object.assign(
+        {
+          prizePeriods: {
+            "一番くじ": 30,
+            "UFOキャッチャー": 14,
+            "その他景品": 30
+          }
+        },
+        d.settings || {}
+      );
+
+      // ---------------------------------------------------------
+      // 2. まずLocalStorageへ保存
+      // ---------------------------------------------------------
+
+      save(KEY.events, events);
+      save(KEY.products, products);
+      save(KEY.schedules, schedules);
+      save(KEY.settings, appSettings);
+
+      // ---------------------------------------------------------
+      // 3. Supabaseへ復元
+      // ---------------------------------------------------------
+
+      if (window.raffleDb?.user) {
+
+        try {
+
+          // save()による通常同期とは別に、
+          // 復元専用処理を実行する
+          await window.raffleDb.importBackup({
+
+            events: JSON.parse(
+              JSON.stringify(events)
+            ),
+
+            products: JSON.parse(
+              JSON.stringify(products)
+            ),
+
+            schedules: JSON.parse(
+              JSON.stringify(schedules)
+            ),
+
+            settings: JSON.parse(
+              JSON.stringify(appSettings)
+            )
+
+          });
+
+          alert(
+            "データを復元しました。\n\n" +
+            "LocalStorageへの復元と、Supabaseへの追加が完了しました。"
+          );
+
+        } catch (syncError) {
+
+          console.error(
+            "Backup → Supabase import error:",
+            syncError
+          );
+
+          alert(
+            "LocalStorageへの復元は完了しましたが、\n" +
+            "Supabaseへの追加に失敗しました。\n\n" +
+            (syncError.message || syncError)
+          );
+        }
+
+      } else {
+
+        alert(
+          "データを復元しました。\n\n" +
+          "Supabaseにはログインしていないため、" +
+          "Databaseへの追加は行っていません。"
+        );
+      }
+
+      // ---------------------------------------------------------
+      // 4. 画面更新
+      // ---------------------------------------------------------
+
+      updateApplicationStatuses();
+
+      render();
+
+    } catch (err) {
+
+      console.error(
+        "Backup restore error:",
+        err
+      );
+
+      alert(
+        "復元に失敗しました。\n\n" +
+        (err.message || err)
+      );
+    }
+
+    // 同じファイルを再選択できるようにする
+    input.value = "";
+  };
+
+  reader.readAsText(file);
 }
 function deleteAllData(){
   if(!confirm("すべての登録データを削除します。よろしいですか？"))return;
