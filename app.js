@@ -1080,156 +1080,89 @@ function backupData(){
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`raffle-manager-backup-${localDateKey(new Date())}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
-function restoreData(input){
+async function restoreData(input){
+  const file=input.files?.[0];
+  if(!file)return;
 
-  const file = input.files?.[0];
+  const reader=new FileReader();
 
-  if (!file) return;
+  reader.onload=async()=>{
+    try{
+      const d=JSON.parse(reader.result);
 
-  const reader = new FileReader();
-
-  reader.onload = async () => {
-
-    try {
-
-      const d = JSON.parse(reader.result);
-
-      // ---------------------------------------------------------
-      // JSONチェック
-      // ---------------------------------------------------------
-
-      if (
+      if(
         !Array.isArray(d.events) ||
         !Array.isArray(d.products) ||
         !Array.isArray(d.schedules)
-      ) {
-        throw new Error(
-          "バックアップファイルの形式が正しくありません。"
-        );
+      ){
+        throw new Error("バックアップデータの形式が正しくありません。");
       }
 
-      if (
-        !confirm(
-          "バックアップデータで現在のデータを置き換えます。\n\n" +
-          "LocalStorageのデータはバックアップ内容に置き換わります。\n" +
-          "Supabaseには既存データを削除せず、バックアップデータを追加します。\n\n" +
-          "よろしいですか？"
-        )
-      ) {
+      if(!confirm("バックアップデータで現在のデータを置き換えます。よろしいですか？")){
         return;
       }
 
-      // ---------------------------------------------------------
-      // 1. LocalStorage用データをセット
-      // ---------------------------------------------------------
+      // バックアップを読み込み
+      events=d.events.map(normalizeEvent);
+      products=d.products;
+      schedules=d.schedules.map(normalizeSchedule);
 
-      events = d.events.map(normalizeEvent);
-
-      products = d.products || [];
-
-      schedules = d.schedules.map(normalizeSchedule);
-
-      appSettings = Object.assign(
+      appSettings=Object.assign(
         {
-          prizePeriods: {
-            "一番くじ": 30,
-            "UFOキャッチャー": 14,
-            "その他景品": 30
+          prizePeriods:{
+            "一番くじ":30,
+            "UFOキャッチャー":14,
+            "その他景品":30
           }
         },
-        d.settings || {}
+        d.settings||{}
       );
 
-      // ---------------------------------------------------------
-      // 2. まずLocalStorageへ保存
-      // ---------------------------------------------------------
+      // ★旧形式のIDをUUIDへ変換
+      await migrateLegacyIds();
 
-      save(KEY.events, events);
-      save(KEY.products, products);
-      save(KEY.schedules, schedules);
-      save(KEY.settings, appSettings);
-
-      // ---------------------------------------------------------
-      // 3. Supabaseへ復元
-      // ---------------------------------------------------------
-
-      if (window.raffleDb?.user) {
-
-        try {
-
-          // save()による通常同期とは別に、
-          // 復元専用処理を実行する
-          await window.raffleDb.importBackup({
-
-            events: JSON.parse(
-              JSON.stringify(events)
-            ),
-
-            products: JSON.parse(
-              JSON.stringify(products)
-            ),
-
-            schedules: JSON.parse(
-              JSON.stringify(schedules)
-            ),
-
-            settings: JSON.parse(
-              JSON.stringify(appSettings)
-            )
-
-          });
-
-          alert(
-            "データを復元しました。\n\n" +
-            "LocalStorageへの復元と、Supabaseへの追加が完了しました。"
-          );
-
-        } catch (syncError) {
-
-          console.error(
-            "Backup → Supabase import error:",
-            syncError
-          );
-
-          alert(
-            "LocalStorageへの復元は完了しましたが、\n" +
-            "Supabaseへの追加に失敗しました。\n\n" +
-            (syncError.message || syncError)
-          );
-        }
-
-      } else {
-
-        alert(
-          "データを復元しました。\n\n" +
-          "Supabaseにはログインしていないため、" +
-          "Databaseへの追加は行っていません。"
-        );
+      // ★まずSupabaseへ保存
+      if(window.raffleDb?.user){
+        await window.raffleDb.syncAll({
+          events:JSON.parse(JSON.stringify(events)),
+          products:JSON.parse(JSON.stringify(products)),
+          schedules:JSON.parse(JSON.stringify(schedules)),
+          settings:JSON.parse(JSON.stringify(appSettings))
+        });
       }
 
-      // ---------------------------------------------------------
-      // 4. 画面更新
-      // ---------------------------------------------------------
+      // ★Supabase保存成功後にLocalStorageへ保存
+      localStorage.setItem(
+        KEY.events,
+        JSON.stringify(events)
+      );
+      localStorage.setItem(
+        KEY.products,
+        JSON.stringify(products)
+      );
+      localStorage.setItem(
+        KEY.schedules,
+        JSON.stringify(schedules)
+      );
+      localStorage.setItem(
+        KEY.settings,
+        JSON.stringify(appSettings)
+      );
 
-      updateApplicationStatuses();
-
+      alert("データを復元しました。");
       render();
 
-    } catch (err) {
-
-      console.error(
-        "Backup restore error:",
-        err
-      );
+    }catch(e){
+      console.error("バックアップ復元エラー:",e);
 
       alert(
-        "復元に失敗しました。\n\n" +
-        (err.message || err)
+        "Databaseへの保存に失敗しました。\n\n"+
+        (e.message||e)
       );
-    }
 
-    // 同じファイルを再選択できるようにする
-    input.value = "";
+    }finally{
+      input.value="";
+    }
   };
 
   reader.readAsText(file);
