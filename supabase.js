@@ -5,14 +5,45 @@
   function localDateTimeToISO(value) {
     if (!value) return null;
 
-    // このアプリは日本時間で入力する
-    return new Date(`${value}:00+09:00`).toISOString();
+    const s = String(value).trim();
+
+    // datetime-local形式
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) {
+      const d = new Date(`${s}:00+09:00`);
+
+      if (Number.isNaN(d.getTime())) {
+        console.error("Invalid local datetime:", value);
+        return null;
+      }
+
+      return d.toISOString();
+    }
+
+    // 秒まで含む形式
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s)) {
+      const d = new Date(`${s}+09:00`);
+
+      if (Number.isNaN(d.getTime())) {
+        console.error("Invalid local datetime:", value);
+        return null;
+      }
+
+      return d.toISOString();
+    }
+
+    console.error("Unsupported datetime format:", value);
+    return null;
   }
 
   function isoToLocalDateTime(value) {
     if (!value) return "";
 
     const d = new Date(value);
+
+    if (Number.isNaN(d.getTime())) {
+    console.error("Invalid date:", value);
+    return "";
+  }
 
     return new Intl.DateTimeFormat("sv-SE", {
       timeZone: "Asia/Tokyo",
